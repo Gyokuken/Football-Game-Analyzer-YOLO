@@ -397,7 +397,21 @@ def run_radar(source_video_path: str, device: str) -> Iterator[np.ndarray]:
         yield annotated_frame
 
 
-def process_video_thread(source_video_path, target_video_path, device, mode, frame_queue, stop_event):
+class PossessionTracker:
+    def __init__(self):
+        self.team_counts = [0, 0]
+        self.total = 0
+    def update(self, team_id):
+        if team_id in [0, 1]:
+            self.team_counts[team_id] += 1
+            self.total += 1
+    def get_percentages(self):
+        if self.total == 0:
+            return (0.0, 0.0)
+        return (100 * self.team_counts[0] / self.total, 100 * self.team_counts[1] / self.total)
+
+
+def process_video_thread(source_video_path, target_video_path, device, mode, frame_queue, stop_event, possession_tracker=None):
     try:
         if mode == Mode.PITCH_DETECTION:
             frame_generator = run_pitch_detection(
@@ -412,20 +426,67 @@ def process_video_thread(source_video_path, target_video_path, device, mode, fra
             frame_generator = run_player_tracking(
                 source_video_path=source_video_path, device=device)
         elif mode == Mode.TEAM_CLASSIFICATION:
-            frame_generator = run_team_classification(
-                source_video_path=source_video_path, device=device)
+            # Use possession logic
+            possession_tracker = PossessionTracker()
+    
+            for frame, possession in run_team_classification_with_possession(
+                source_video_path, device, stop_event, possession_tracker):
+                if stop_event.is_set():
+                    break
+                frame_queue.put((frame, possession))
+            return
         elif mode == Mode.RADAR:
             frame_generator = run_radar(
                 source_video_path=source_video_path, device=device)
         else:
             raise NotImplementedError(f"Mode {mode} is not implemented.")
-
         for frame in frame_generator:
             if stop_event.is_set():
                 break
-            frame_queue.put(frame)
+            frame_queue.put((frame, None))
     except Exception as e:
-        frame_queue.put(e)
+        frame_queue.put((e, None))
+
+
+def run_team_classification_with_possession(source_video_path, device, stop_event, possession_tracker):
+    if possession_tracker is None:
+        raise ValueError("possession_tracker must not be None in TEAM_CLASSIFICATION mode")
+    player_detection_model = YOLO(PLAYER_DETECTION_MODEL_PATH).to(device=device)
+    ball_detection_model = YOLO(BALL_DETECTION_MODEL_PATH).to(device=device)
+    frame_generator = sv.get_video_frames_generator(source_path=source_video_path, stride=STRIDE)
+    crops = []
+    for frame in tqdm(frame_generator, desc='collecting crops'):
+        result = player_detection_model(frame, imgsz=1280, verbose=False)[0]
+        detections = sv.Detections.from_ultralytics(result)
+        crops += get_crops(frame, detections[detections.class_id == PLAYER_CLASS_ID])
+    team_classifier = TeamClassifier(device=device)
+    team_classifier.fit(crops)
+    frame_generator = sv.get_video_frames_generator(source_path=source_video_path)
+    tracker = sv.ByteTrack(minimum_consecutive_frames=3)
+    ball_tracker = BallTracker(buffer_size=10)
+    for frame in frame_generator:
+        if stop_event.is_set():
+            break
+        result = player_detection_model(frame, imgsz=1280, verbose=False)[0]
+        detections = sv.Detections.from_ultralytics(result)
+        detections = tracker.update_with_detections(detections)
+        players = detections[detections.class_id == PLAYER_CLASS_ID]
+        crops = get_crops(frame, players)
+        players_team_id = team_classifier.predict(crops)
+        # Ball detection
+        ball_result = ball_detection_model(frame, imgsz=640, verbose=False)[0]
+        ball_detections = sv.Detections.from_ultralytics(ball_result)
+        ball_detections = ball_tracker.update(ball_detections)
+        # Possession logic
+        if len(ball_detections) > 0 and len(players) > 0:
+            ball_xy = ball_detections.get_anchors_coordinates(sv.Position.CENTER)[0]
+            players_xy = players.get_anchors_coordinates(sv.Position.BOTTOM_CENTER)
+            dists = np.linalg.norm(players_xy - ball_xy, axis=1)
+            closest_idx = np.argmin(dists)
+            if closest_idx < len(players_team_id):
+                team_id = players_team_id[closest_idx]
+                possession_tracker.update(team_id)
+        yield frame, possession_tracker.get_percentages()
 
 
 def start_tkinter_ui():
@@ -443,6 +504,14 @@ def start_tkinter_ui():
     right_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
     right_frame.pack_propagate(False)
 
+    # Tabs on right
+    notebook = ttk.Notebook(right_frame)
+    notebook.pack(fill=tk.BOTH, expand=True)
+    tab1 = tk.Frame(notebook)
+    notebook.add(tab1, text="Team Possession %")
+    possession_label = tk.Label(tab1, text="Team 0: 0.0%\nTeam 1: 0.0%", font=("Arial", 24), bg='gray90')
+    possession_label.pack(pady=40)
+
     # Video display label
     video_label = tk.Label(left_frame, bg='black')
     video_label.pack(fill=tk.BOTH, expand=True)
@@ -453,11 +522,12 @@ def start_tkinter_ui():
 
     file_path_var = tk.StringVar()
     mode_var = tk.StringVar(value=Mode.PLAYER_DETECTION.value)
-    device_var = tk.StringVar(value='cpu')
+    device_var = tk.StringVar(value='cuda')
     stop_event = None
     frame_queue = queue.Queue(maxsize=2)
     thread = None
     paused = [False]  # Use a list for mutability in nested functions
+    possession_tracker = [None]
 
     def select_file():
         file_path = filedialog.askopenfilename(filetypes=[('Video Files', '*.mp4 *.avi *.mov')])
@@ -474,13 +544,18 @@ def start_tkinter_ui():
         stop_event = Event()
         frame_queue.queue.clear()
         paused[0] = False
+        if mode_var.get() == Mode.TEAM_CLASSIFICATION:
+            possession_tracker[0] = PossessionTracker()
+        else:
+            possession_tracker[0] = None
         thread = Thread(target=process_video_thread, args=(
             file_path_var.get(),
             "output.mp4",  # Output path (not used in UI)
             device_var.get(),
             Mode(mode_var.get()),
             frame_queue,
-            stop_event
+            stop_event,
+            possession_tracker[0]
         ), daemon=True)
         thread.start()
         update_video()
@@ -507,20 +582,19 @@ def start_tkinter_ui():
     def clear_video():
         video_label.config(image="")
         video_label.imgtk = None
+        possession_label.config(text="Team 0: 0.0%\nTeam 1: 0.0%")
 
     def update_video():
         if paused[0]:
             return
         try:
-            frame = frame_queue.get_nowait()
+            frame, possession = frame_queue.get_nowait()
             if isinstance(frame, Exception):
                 messagebox.showerror("Error", str(frame))
                 return
-            # Dynamically get the size of the video_label/left_frame
             left_frame.update_idletasks()
             display_w = left_frame.winfo_width()
             display_h = left_frame.winfo_height()
-            # Maintain aspect ratio
             h, w, _ = frame.shape
             scale = min(display_w / w, display_h / h)
             new_w, new_h = int(w * scale), int(h * scale)
@@ -530,6 +604,12 @@ def start_tkinter_ui():
             imgtk = ImageTk.PhotoImage(image=img)
             video_label.imgtk = imgtk
             video_label.config(image=imgtk)
+            # Only update possession label in TEAM_CLASSIFICATION mode and if possession is not None
+            if mode_var.get() == Mode.TEAM_CLASSIFICATION and possession is not None:
+                p0, p1 = possession
+                possession_label.config(text=f"Team 0: {p0:.1f}%\nTeam 1: {p1:.1f}%")
+            else:
+                possession_label.config(text="Team 0: 0.0%\nTeam 1: 0.0%")
         except queue.Empty:
             pass
         if thread and thread.is_alive() and not paused[0]:
@@ -546,7 +626,7 @@ def start_tkinter_ui():
 
     # Device selection
     tk.Label(controls_frame, text="Device:", bg='black', fg='white').pack(side=tk.LEFT, padx=5)
-    device_menu = ttk.Combobox(controls_frame, textvariable=device_var, values=['cpu', 'cuda'], state='readonly')
+    device_menu = ttk.Combobox(controls_frame, textvariable=device_var, values=['cuda'], state='readonly')
     device_menu.pack(side=tk.LEFT, padx=5)
 
     # Media controls

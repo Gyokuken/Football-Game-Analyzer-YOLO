@@ -23,7 +23,8 @@ def run_pitch_detection(source_video_path: str, device: str):
     for frame in frame_generator:
         result = pitch_detection_model(frame, verbose=False)[0]
         keypoints = sv.KeyPoints.from_ultralytics(result)
+
         annotated_frame = frame.copy()
         annotated_frame = VERTEX_LABEL_ANNOTATOR.annotate(
             annotated_frame, keypoints, CONFIG.labels)
-        yield annotated_frame 
+        yield annotated_frame

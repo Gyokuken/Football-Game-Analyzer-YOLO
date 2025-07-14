@@ -5,7 +5,7 @@ from ultralytics import YOLO
 from sports.common.ball import BallTracker, BallAnnotator
 
 PLAYER_DETECTION_MODEL_PATH = 'data/football-player-detection.pt'
-BOX_ANNOTATOR = sv.BoxAnnotator(
+BOX_ANNOTATOR = sv.BoundingBoxAnnotator(
     color=sv.ColorPalette.from_hex(['#FF1493', '#00BFFF', '#FF6347', '#FFD700']),
     thickness=2
 )

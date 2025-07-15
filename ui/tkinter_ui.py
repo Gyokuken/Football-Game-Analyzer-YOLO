@@ -11,9 +11,12 @@ from video_modes.player_tracking import run_player_tracking
 from video_modes.team_classification import run_team_classification, run_team_classification_with_possession
 from video_modes.radar import run_radar
 from video_modes.possession import PossessionTracker
+from video_modes.pass_map import run_pass_map
 
 import torch
 import ultralytics.nn.tasks
+import os
+import numpy as np
 
 TARGET_DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -29,6 +32,7 @@ class Mode:
     PLAYER_TRACKING = 'PLAYER_TRACKING'
     TEAM_CLASSIFICATION = 'TEAM_CLASSIFICATION'
     RADAR = 'RADAR'
+    PASS_MAP = 'PASS_MAP'
 
 
 def start_tkinter_ui():
@@ -60,6 +64,14 @@ def start_tkinter_ui():
     radar_label = tk.Label(radar_tab, bg='gray90')
     radar_label.pack(pady=20)
 
+    # Pass Map tab
+    pass_map_tab = tk.Frame(notebook)
+    notebook.add(pass_map_tab, text="Pass Map")
+    pass_map_label = tk.Label(pass_map_tab, bg='gray90')
+    pass_map_label.pack(pady=20)
+    pass_map_counts_label = tk.Label(pass_map_tab, text="", font=("Arial", 16), bg='gray90')
+    pass_map_counts_label.pack(pady=5)
+
     # Video display label
     video_label = tk.Label(left_frame, bg='black')
     video_label.pack(fill=tk.BOTH, expand=True)
@@ -69,6 +81,7 @@ def start_tkinter_ui():
     controls_frame.pack(fill=tk.X, side=tk.BOTTOM)
 
     file_path_var = tk.StringVar()
+    file_name_var = tk.StringVar()
     mode_var = tk.StringVar(value=Mode.PLAYER_DETECTION)
     device_var = tk.StringVar(value='cpu')
     stop_event = None
@@ -77,10 +90,28 @@ def start_tkinter_ui():
     paused = [False]  # Use a list for mutability in nested functions
     possession_tracker = None
 
+    def add_tooltip(widget, text):
+        tooltip = tk.Toplevel(widget)
+        tooltip.withdraw()
+        tooltip.overrideredirect(True)
+        label = tk.Label(tooltip, text=text, background="#ffffe0", relief='solid', borderwidth=1)
+        label.pack()
+        def enter(event):
+            tooltip.deiconify()
+            x = event.x_root + 10
+            y = event.y_root + 10
+            tooltip.geometry(f'+{x}+{y}')
+        def leave(event):
+            tooltip.withdraw()
+        widget.bind('<Enter>', enter)
+        widget.bind('<Leave>', leave)
+
     def select_file():
         file_path = filedialog.askopenfilename(filetypes=[('Video Files', '*.mp4 *.avi *.mov')])
         if file_path:
             file_path_var.set(file_path)
+            file_name_var.set(os.path.basename(file_path))
+            add_tooltip(file_label, file_path)
             clear_video()
 
     def process_video_thread(source_video_path, device, mode, frame_queue, stop_event, possession_tracker=None):
@@ -91,8 +122,10 @@ def start_tkinter_ui():
                 frame_generator = run_player_detection(source_video_path, device)
             elif mode == Mode.BALL_DETECTION:
                 frame_generator = run_ball_detection(source_video_path, device)
+            
             elif mode == Mode.PLAYER_TRACKING:
                 frame_generator = run_player_tracking(source_video_path, device)
+            
             elif mode == Mode.TEAM_CLASSIFICATION:
                 for frame, possession in run_team_classification_with_possession(
                     source_video_path, device, stop_event, possession_tracker):
@@ -102,6 +135,9 @@ def start_tkinter_ui():
                 return
             elif mode == Mode.RADAR:
                 frame_generator = run_radar(source_video_path, device)
+            elif mode == Mode.PASS_MAP:
+                frame_generator = run_pass_map(source_video_path, device)
+
             else:
                 raise NotImplementedError(f"Mode {mode} is not implemented.")
             for frame in frame_generator:
@@ -122,6 +158,9 @@ def start_tkinter_ui():
         paused[0] = False
         if mode_var.get() == Mode.TEAM_CLASSIFICATION:
             possession_tracker = PossessionTracker()
+        elif mode_var.get() == Mode.PASS_MAP:
+            # No possession tracker for pass map
+            possession_tracker = None
         else:
             possession_tracker = None
         thread = Thread(target=process_video_thread, args=(
@@ -152,6 +191,7 @@ def start_tkinter_ui():
     def remove_video():
         stop_processing()
         file_path_var.set("")
+        file_name_var.set("")
         clear_video()
 
     def clear_video():
@@ -167,8 +207,44 @@ def start_tkinter_ui():
             if isinstance(frame, Exception):
                 messagebox.showerror("Error", str(frame))
                 return
-            # For RADAR mode, frame is (annotated_frame, radar_img)
-            if mode_var.get() == Mode.RADAR:
+            if mode_var.get() == Mode.PASS_MAP:
+                # Defensive: ensure frame is a tuple of length 3
+                if isinstance(frame, tuple) and len(frame) == 3:
+                    video_frame, pass_map_img, team_pass_counts = frame
+                elif isinstance(frame, tuple) and len(frame) == 2:
+                    video_frame, pass_map_img = frame
+                    team_pass_counts = {0: 0, 1: 0}
+                else:
+                    video_frame = frame
+                    pass_map_img = np.zeros_like(video_frame)
+                    team_pass_counts = {0: 0, 1: 0}
+                # Display video frame on the left
+                left_frame.update_idletasks()
+                display_w = left_frame.winfo_width()
+                display_h = left_frame.winfo_height()
+                h, w, _ = video_frame.shape
+                scale = min(display_w / w, display_h / h)
+                new_w, new_h = int(w * scale), int(h * scale)
+                img = cv2.cvtColor(video_frame, cv2.COLOR_BGR2RGB)
+                img = Image.fromarray(img)
+                img = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+                imgtk = ImageTk.PhotoImage(image=img)
+                setattr(video_label, 'imgtk', imgtk)
+                video_label.config(image=imgtk)
+                # Display pass map in pass map tab
+                pm_h, pm_w, _ = pass_map_img.shape
+                pm_scale = min(350 / pm_w, 350 / pm_h, 1.0)
+                pm_new_w, pm_new_h = int(pm_w * pm_scale), int(pm_h * pm_scale)
+                pm_img = cv2.cvtColor(pass_map_img, cv2.COLOR_BGR2RGB)
+                pm_pil = Image.fromarray(pm_img)
+                pm_pil = pm_pil.resize((pm_new_w, pm_new_h), Image.Resampling.LANCZOS)
+                pm_imgtk = ImageTk.PhotoImage(image=pm_pil)
+                setattr(pass_map_label, 'imgtk', pm_imgtk)
+                pass_map_label.config(image=pm_imgtk)
+                # Display team pass counts
+                pass_map_counts_label.config(text=f"Team 0 passes: {team_pass_counts.get(0,0)}   Team 1 passes: {team_pass_counts.get(1,0)}")
+                possession_label.config(text="Team 0: 0.0%\nTeam 1: 0.0%")
+            elif mode_var.get() == Mode.RADAR:
                 annotated_frame, radar_img = frame
                 # Display video as usual
                 left_frame.update_idletasks()
@@ -220,7 +296,9 @@ def start_tkinter_ui():
 
     # File selection
     tk.Button(controls_frame, text="Select Video", command=select_file).pack(side=tk.LEFT, padx=5, pady=5)
-    tk.Label(controls_frame, textvariable=file_path_var, bg='black', fg='white').pack(side=tk.LEFT, padx=5)
+    file_label = tk.Label(controls_frame, textvariable=file_name_var, bg='black', fg='white')
+    file_label.pack(side=tk.LEFT, padx=5)
+    add_tooltip(file_label, file_path_var.get())
 
     # Mode selection
     tk.Label(controls_frame, text="Mode:", bg='black', fg='white').pack(side=tk.LEFT, padx=5)
@@ -230,7 +308,8 @@ def start_tkinter_ui():
         Mode.BALL_DETECTION,
         Mode.PLAYER_TRACKING,
         Mode.TEAM_CLASSIFICATION,
-        Mode.RADAR
+        Mode.RADAR,
+        Mode.PASS_MAP
     ], state='readonly')
     mode_menu.pack(side=tk.LEFT, padx=5)
 

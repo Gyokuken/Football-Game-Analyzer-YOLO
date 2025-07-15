@@ -17,7 +17,7 @@ CONFIG = SoccerPitchConfiguration()
 COLORS = ['#FF1493', '#00BFFF', '#FF6347', '#FFD700']
 
 
-def render_radar(detections, keypoints, color_lookup):
+def render_radar(detections, keypoints, color_lookup, colors=COLORS):
     mask = (keypoints.xy[0][:, 0] > 1) & (keypoints.xy[0][:, 1] > 1)
     from sports.common.view import ViewTransformer
     transformer = ViewTransformer(
@@ -27,7 +27,7 @@ def render_radar(detections, keypoints, color_lookup):
     xy = detections.get_anchors_coordinates(anchor=sv.Position.BOTTOM_CENTER)
     transformed_xy = transformer.transform_points(points=xy)
     radar = draw_pitch(config=CONFIG)
-    for i, color in enumerate(COLORS):
+    for i, color in enumerate(colors):
         radar = draw_points_on_pitch(
             config=CONFIG, xy=transformed_xy[color_lookup == i],
             face_color=sv.Color.from_hex(color), radius=20, pitch=radar)

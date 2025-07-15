@@ -7,6 +7,7 @@ import umap
 from sklearn.cluster import KMeans
 from tqdm import tqdm
 from transformers import AutoImageProcessor, SiglipVisionModel
+import joblib
 
 V = TypeVar("V")
 
@@ -64,3 +65,24 @@ class TeamClassifier:
         data = self.extract_features(crops)
         projections = self.reducer.transform(data)
         return self.cluster_model.predict(projections)
+    
+    def save(self, path: str) -> None:
+        """
+        Persist the reducer and clustering to disk.
+        """
+        joblib.dump({
+            'umap':   self.reducer,
+            'kmeans': self.cluster_model
+        }, path)
+
+    @classmethod
+    def load(cls, path: str, device: str = 'cpu', batch_size: int = 32):
+        """
+        Instantiate a fresh object and restore its reducer + cluster_model.
+        """
+        obj = cls(device=device, batch_size=batch_size)
+        data = joblib.load(path)
+        obj.reducer        = data['umap']
+        obj.cluster_model  = data['kmeans']
+        # No need to re-load the vision model; it's already in __init__
+        return obj

@@ -1,2 +1,0 @@
-import supervision
-print(supervision.__version__)

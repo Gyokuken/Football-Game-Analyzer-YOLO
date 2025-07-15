@@ -54,6 +54,12 @@ def start_tkinter_ui():
     possession_label = tk.Label(tab1, text="Team 0: 0.0%\nTeam 1: 0.0%", font=("Arial", 24), bg='gray90')
     possession_label.pack(pady=40)
 
+    # Radar tab
+    radar_tab = tk.Frame(notebook)
+    notebook.add(radar_tab, text="Radar")
+    radar_label = tk.Label(radar_tab, bg='gray90')
+    radar_label.pack(pady=20)
+
     # Video display label
     video_label = tk.Label(left_frame, bg='black')
     video_label.pack(fill=tk.BOTH, expand=True)
@@ -69,7 +75,7 @@ def start_tkinter_ui():
     frame_queue = queue.Queue(maxsize=2)
     thread = None
     paused = [False]  # Use a list for mutability in nested functions
-    possession_tracker = [None]
+    possession_tracker = None
 
     def select_file():
         file_path = filedialog.askopenfilename(filetypes=[('Video Files', '*.mp4 *.avi *.mov')])
@@ -115,16 +121,16 @@ def start_tkinter_ui():
         frame_queue.queue.clear()
         paused[0] = False
         if mode_var.get() == Mode.TEAM_CLASSIFICATION:
-            possession_tracker[0] = PossessionTracker()
+            possession_tracker = PossessionTracker()
         else:
-            possession_tracker[0] = None
+            possession_tracker = None
         thread = Thread(target=process_video_thread, args=(
             file_path_var.get(),
             device_var.get(),
             mode_var.get(),
             frame_queue,
             stop_event,
-            possession_tracker[0]
+            possession_tracker
         ), daemon=True)
         thread.start()
         update_video()
@@ -161,24 +167,52 @@ def start_tkinter_ui():
             if isinstance(frame, Exception):
                 messagebox.showerror("Error", str(frame))
                 return
-            left_frame.update_idletasks()
-            display_w = left_frame.winfo_width()
-            display_h = left_frame.winfo_height()
-            h, w, _ = frame.shape
-            scale = min(display_w / w, display_h / h)
-            new_w, new_h = int(w * scale), int(h * scale)
-            img = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            img = Image.fromarray(img)
-            img = img.resize((new_w, new_h), Image.LANCZOS)
-            imgtk = ImageTk.PhotoImage(image=img)
-            video_label.imgtk = imgtk
-            video_label.config(image=imgtk)
-            # Only update possession label in TEAM_CLASSIFICATION mode and if possession is not None
-            if mode_var.get() == Mode.TEAM_CLASSIFICATION and possession is not None:
-                p0, p1 = possession
-                possession_label.config(text=f"Team 0: {p0:.1f}%\nTeam 1: {p1:.1f}%")
-            else:
+            # For RADAR mode, frame is (annotated_frame, radar_img)
+            if mode_var.get() == Mode.RADAR:
+                annotated_frame, radar_img = frame
+                # Display video as usual
+                left_frame.update_idletasks()
+                display_w = left_frame.winfo_width()
+                display_h = left_frame.winfo_height()
+                h, w, _ = annotated_frame.shape
+                scale = min(display_w / w, display_h / h)
+                new_w, new_h = int(w * scale), int(h * scale)
+                img = cv2.cvtColor(annotated_frame, cv2.COLOR_BGR2RGB)
+                img = Image.fromarray(img)
+                img = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+                imgtk = ImageTk.PhotoImage(image=img)
+                setattr(video_label, 'imgtk', imgtk)
+                video_label.config(image=imgtk)
+                # Display radar in radar tab
+                radar_h, radar_w, _ = radar_img.shape
+                radar_scale = min(350 / radar_w, 350 / radar_h, 1.0)
+                radar_new_w, radar_new_h = int(radar_w * radar_scale), int(radar_h * radar_scale)
+                radar_img_rgb = cv2.cvtColor(radar_img, cv2.COLOR_BGR2RGB)
+                radar_pil = Image.fromarray(radar_img_rgb)
+                radar_pil = radar_pil.resize((radar_new_w, radar_new_h), Image.Resampling.LANCZOS)
+                radar_imgtk = ImageTk.PhotoImage(image=radar_pil)
+                setattr(radar_label, 'imgtk', radar_imgtk)
+                radar_label.config(image=radar_imgtk)
                 possession_label.config(text="Team 0: 0.0%\nTeam 1: 0.0%")
+            else:
+                left_frame.update_idletasks()
+                display_w = left_frame.winfo_width()
+                display_h = left_frame.winfo_height()
+                h, w, _ = frame.shape
+                scale = min(display_w / w, display_h / h)
+                new_w, new_h = int(w * scale), int(h * scale)
+                img = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                img = Image.fromarray(img)
+                img = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+                imgtk = ImageTk.PhotoImage(image=img)
+                setattr(video_label, 'imgtk', imgtk)
+                video_label.config(image=imgtk)
+                # Only update possession label in TEAM_CLASSIFICATION mode and if possession is not None
+                if mode_var.get() == Mode.TEAM_CLASSIFICATION and possession is not None:
+                    p0, p1 = possession
+                    possession_label.config(text=f"Team 0: {p0:.1f}%\nTeam 1: {p1:.1f}%")
+                else:
+                    possession_label.config(text="Team 0: 0.0%\nTeam 1: 0.0%")
         except queue.Empty:
             pass
         if thread and thread.is_alive() and not paused[0]:

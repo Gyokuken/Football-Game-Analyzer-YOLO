@@ -79,5 +79,5 @@ def run_radar(source_video_path: str, device: str):
             width=radar_w,
             height=radar_h
         )
-        annotated_frame = sv.draw_image(annotated_frame, radar, opacity=0.5, rect=rect)
-        yield annotated_frame 
+        #annotated_frame = sv.draw_image(annotated_frame, radar, opacity=0.5, rect=rect)
+        yield annotated_frame , radar

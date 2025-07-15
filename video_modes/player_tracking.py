@@ -41,7 +41,7 @@ from sports.common.team import TeamClassifier
 PLAYER_DETECTION_MODEL_PATH = 'data/football-player-detection.pt'
 
 # load your pre-trained classifier once
-classifier = TeamClassifier.load("team_classifier.pkl")
+# classifier = TeamClassifier.load("team_classifier.pkl")
 
 # map team_id → (name, BGR color)
 TEAM_INFO = {

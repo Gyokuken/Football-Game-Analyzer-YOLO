@@ -3,6 +3,7 @@ from collections import deque
 import cv2
 import numpy as np
 import supervision as sv
+import matplotlib.pyplot as plt
 
 
 class BallAnnotator:
@@ -18,7 +19,7 @@ class BallAnnotator:
 
     def __init__(self, radius: int, buffer_size: int = 5, thickness: int = 2):
 
-        self.color_palette = sv.ColorPalette.from_matplotlib('jet', buffer_size)
+        self.color_palette = get_palette_from_cmap('jet', buffer_size)
         self.buffer = deque(maxlen=buffer_size)
         self.radius = radius
         self.thickness = thickness
@@ -52,7 +53,7 @@ class BallAnnotator:
         xy = detections.get_anchors_coordinates(sv.Position.BOTTOM_CENTER).astype(int)
         self.buffer.append(xy)
         for i, xy in enumerate(self.buffer):
-            color = self.color_palette.by_idx(i)
+            color = self.color_palette[i]
             interpolated_radius = self.interpolate_radius(i, len(self.buffer))
             for center in xy:
                 frame = cv2.circle(
@@ -101,3 +102,9 @@ class BallTracker:
         distances = np.linalg.norm(xy - centroid, axis=1)
         index = np.argmin(distances)
         return detections[[index]]
+
+
+def get_palette_from_cmap(name, n):
+    cmap = plt.get_cmap(name)
+    colors = [tuple(int(255*x) for x in cmap(i/(n-1))[:3]) for i in range(n)]
+    return [sv.Color(r, g, b) for (r, g, b) in colors]

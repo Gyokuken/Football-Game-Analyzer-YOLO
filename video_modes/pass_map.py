@@ -175,9 +175,78 @@ def run_pass_map(source_video_path: str, device: str):
                 print(f"Pass timeout: no receiver within {PASS_TIMEOUT} frames")
                 pass_armed = False
 
+            # # Debug for cases where no pass
+            # if not pass_armed:
+            #     print("No pass armed or detected")
+
+            # above line has been replaced with the below lines --------------
+
+            ball_travel_distance = 0
+            if len(ball_positions) >= 2:
+                ball_travel_distance = np.linalg.norm(ball_positions[-1] - ball_positions[0])
+
+            # Calculate ball trajectory angle (if possible)
+            ball_direction_angle = None
+            if len(ball_positions) >= 3:
+                vec1 = ball_positions[-2] - ball_positions[-3]
+                vec2 = ball_positions[-1] - ball_positions[-2]
+                if np.linalg.norm(vec1) > 0 and np.linalg.norm(vec2) > 0:
+                    cos_angle = np.dot(vec1, vec2) / (np.linalg.norm(vec1) * np.linalg.norm(vec2))
+                    ball_direction_angle = np.arccos(np.clip(cos_angle, -1.0, 1.0)) * 180 / np.pi
+
+            # Only count passes if both players are on the same team and ball traveled enough distance
+            MIN_PASS_TRAVEL_DIST = 20  # pixels
+            MAX_PASS_ANGLE_CHANGE = 60 # degrees, to filter out rebounds
+
+            if (
+                last_possessor_id is not None
+                and ball_velocity > BALL_VELOCITY_THRESHOLD
+                and last_possessor_ball_dist is not None
+                and last_possessor_ball_dist < PASS_DISTANCE_THRESHOLD
+            ):
+                ball_released_by = last_possessor_id
+                ball_released_team = last_possessor_team
+                ball_released_frame = frame_index
+                ball_release_position = ball_positions[-2] if len(ball_positions) >= 2 else ball_positions[-1]
+                pass_armed = True
+
+            if (
+                pass_armed
+                and ball_released_by != possessor_id
+                and possessor_ball_dist < PASS_DISTANCE_THRESHOLD
+                and (frame_index - ball_released_frame <= PASS_TIMEOUT)
+                and player_team_map.get(ball_released_by, -1) == possessor_team  # Only same team
+                and ball_travel_distance > MIN_PASS_TRAVEL_DIST                # Ball must travel enough
+                and (ball_direction_angle is None or ball_direction_angle < MAX_PASS_ANGLE_CHANGE)  # Not a rebound
+            ):
+                print(f"✅ PASS DETECTED: {ball_released_by} (team {ball_released_team}) -> {possessor_id} (team {possessor_team})")
+                pass_counts[ball_released_by][possessor_id] += 1
+
+                writer.writerow([
+                    frame_index,
+                    ball_released_by,
+                    ball_released_team,
+                    possessor_id,
+                    possessor_team,
+                    round(ball_velocity, 2),
+                    round(last_possessor_ball_dist, 2),
+                    round(possessor_ball_dist, 2)
+                ])
+                pass_armed = False  # reset
+
+            elif pass_armed and frame_index - ball_released_frame > PASS_TIMEOUT:
+                print(f"Pass timeout: no receiver within {PASS_TIMEOUT} frames")
+                pass_armed = False
+
             # Debug for cases where no pass
             if not pass_armed:
                 print("No pass armed or detected")
+
+            # Until here, the above code is the one that replaces the previous -----------------------------
+
+            last_possessor_id = possessor_id
+            last_possessor_team = possessor_team
+            last_possessor_ball_dist = possessor_ball_dist
 
             last_possessor_id = possessor_id
             last_possessor_team = possessor_team

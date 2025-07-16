@@ -203,19 +203,19 @@
 #         if paused[0]:
 #             return
 #         try:
-#             frame, possession = frame_queue.get_nowait()
-#             if isinstance(frame, Exception):
-#                 messagebox.showerror("Error", str(frame))
-#                 return
-#             if mode_var.get() == Mode.PASS_MAP:
-#                 # Defensive: ensure frame is a tuple of length 3
-#                 if isinstance(frame, tuple) and len(frame) == 3:
-#                     video_frame, pass_map_img, team_pass_counts = frame
-#                 elif isinstance(frame, tuple) and len(frame) == 2:
-#                     video_frame, pass_map_img = frame
-#                     team_pass_counts = {0: 0, 1: 0}
+#             out = frame_queue.get_nowait()
+#         except queue.Empty:
+#             pass
+#         else:
+#             mode = mode_var.get()
+#             # --- Pass Map Mode ---
+#             if mode == Mode.PASS_MAP:
+#                 # Expect out to be (frame, pass_map_img, team_pass_counts)
+#                 if isinstance(out, tuple) and len(out) == 3:
+#                     video_frame, pass_map_img, team_pass_counts = out
 #                 else:
-#                     video_frame = frame
+#                     # Fallbacks for legacy or error cases
+#                     video_frame = out if isinstance(out, np.ndarray) else np.zeros((480, 640, 3), dtype=np.uint8)
 #                     pass_map_img = np.zeros_like(video_frame)
 #                     team_pass_counts = {0: 0, 1: 0}
 #                 # Display video frame on the left
@@ -242,35 +242,56 @@
 #                 setattr(pass_map_label, 'imgtk', pm_imgtk)
 #                 pass_map_label.config(image=pm_imgtk)
 #                 # Display team pass counts
-#                 pass_map_counts_label.config(text=f"Team 0 passes: {team_pass_counts.get(0,0)}   Team 1 passes: {team_pass_counts.get(1,0)}")
+#                 pass_counts_label.config(text=f"Team 0 passes: {team_pass_counts.get(0,0)}   Team 1 passes: {team_pass_counts.get(1,0)}")
 #                 possession_label.config(text="Team 0: 0.0%\nTeam 1: 0.0%")
-#             elif mode_var.get() == Mode.RADAR:
-#                 annotated_frame, radar_img = frame
-#                 # Display video as usual
-#                 left_frame.update_idletasks()
-#                 display_w = left_frame.winfo_width()
-#                 display_h = left_frame.winfo_height()
-#                 h, w, _ = annotated_frame.shape
-#                 scale = min(display_w / w, display_h / h)
-#                 new_w, new_h = int(w * scale), int(h * scale)
-#                 img = cv2.cvtColor(annotated_frame, cv2.COLOR_BGR2RGB)
-#                 img = Image.fromarray(img)
-#                 img = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
-#                 imgtk = ImageTk.PhotoImage(image=img)
-#                 setattr(video_label, 'imgtk', imgtk)
-#                 video_label.config(image=imgtk)
-#                 # Display radar in radar tab
-#                 radar_h, radar_w, _ = radar_img.shape
-#                 radar_scale = min(350 / radar_w, 350 / radar_h, 1.0)
-#                 radar_new_w, radar_new_h = int(radar_w * radar_scale), int(radar_h * radar_scale)
-#                 radar_img_rgb = cv2.cvtColor(radar_img, cv2.COLOR_BGR2RGB)
-#                 radar_pil = Image.fromarray(radar_img_rgb)
-#                 radar_pil = radar_pil.resize((radar_new_w, radar_new_h), Image.Resampling.LANCZOS)
-#                 radar_imgtk = ImageTk.PhotoImage(image=radar_pil)
-#                 setattr(radar_label, 'imgtk', radar_imgtk)
-#                 radar_label.config(image=radar_imgtk)
-#                 possession_label.config(text="Team 0: 0.0%\nTeam 1: 0.0%")
+#             # --- Radar Mode ---
+#             elif mode == Mode.RADAR:
+#                 if isinstance(out, tuple) and len(out) == 2:
+#                     annotated_frame, radar_img = out
+#                     left_frame.update_idletasks()
+#                     display_w = left_frame.winfo_width()
+#                     display_h = left_frame.winfo_height()
+#                     h, w, _ = annotated_frame.shape
+#                     scale = min(display_w / w, display_h / h)
+#                     new_w, new_h = int(w * scale), int(h * scale)
+#                     img = cv2.cvtColor(annotated_frame, cv2.COLOR_BGR2RGB)
+#                     img = Image.fromarray(img)
+#                     img = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+#                     imgtk = ImageTk.PhotoImage(image=img)
+#                     setattr(video_label, 'imgtk', imgtk)
+#                     video_label.config(image=imgtk)
+#                     # Display radar in radar tab
+#                     radar_h, radar_w, _ = radar_img.shape
+#                     radar_scale = min(350 / radar_w, 350 / radar_h, 1.0)
+#                     radar_new_w, radar_new_h = int(radar_w * radar_scale), int(radar_h * radar_scale)
+#                     radar_img_rgb = cv2.cvtColor(radar_img, cv2.COLOR_BGR2RGB)
+#                     radar_pil = Image.fromarray(radar_img_rgb)
+#                     radar_pil = radar_pil.resize((radar_new_w, radar_new_h), Image.Resampling.LANCZOS)
+#                     radar_imgtk = ImageTk.PhotoImage(image=radar_pil)
+#                     setattr(radar_label, 'imgtk', radar_imgtk)
+#                     radar_label.config(image=radar_imgtk)
+#                     possession_label.config(text="Team 0: 0.0%\nTeam 1: 0.0%")
+#             # --- Team Classification Mode ---
+#             elif mode == Mode.TEAM_CLASSIFICATION:
+#                 if isinstance(out, tuple) and len(out) == 2:
+#                     frame, possession = out
+#                     left_frame.update_idletasks()
+#                     display_w = left_frame.winfo_width()
+#                     display_h = left_frame.winfo_height()
+#                     h, w, _ = frame.shape
+#                     scale = min(display_w / w, display_h / h)
+#                     new_w, new_h = int(w * scale), int(h * scale)
+#                     img = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+#                     img = Image.fromarray(img)
+#                     img = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+#                     imgtk = ImageTk.PhotoImage(image=img)
+#                     setattr(video_label, 'imgtk', imgtk)
+#                     video_label.config(image=imgtk)
+#                     p0, p1 = possession
+#                     possession_label.config(text=f"Team 0: {p0:.1f}%\nTeam 1: {p1:.1f}%")
+#             # --- Other Modes ---
 #             else:
+#                 frame = out if isinstance(out, np.ndarray) else np.zeros((480, 640, 3), dtype=np.uint8)
 #                 left_frame.update_idletasks()
 #                 display_w = left_frame.winfo_width()
 #                 display_h = left_frame.winfo_height()
@@ -283,14 +304,8 @@
 #                 imgtk = ImageTk.PhotoImage(image=img)
 #                 setattr(video_label, 'imgtk', imgtk)
 #                 video_label.config(image=imgtk)
-#                 # Only update possession label in TEAM_CLASSIFICATION mode and if possession is not None
-#                 if mode_var.get() == Mode.TEAM_CLASSIFICATION and possession is not None:
-#                     p0, p1 = possession
-#                     possession_label.config(text=f"Team 0: {p0:.1f}%\nTeam 1: {p1:.1f}%")
-#                 else:
-#                     possession_label.config(text="Team 0: 0.0%\nTeam 1: 0.0%")
-#         except queue.Empty:
-#             pass
+#                 possession_label.config(text="Team 0: 0.0%\nTeam 1: 0.0%")
+
 #         if thread and thread.is_alive() and not paused[0]:
 #             root.after(30, update_video)
 
@@ -508,67 +523,160 @@ def start_tkinter_ui():
         except queue.Empty:
             pass
         else:
-            # Unpack
-            frame, extra = (out if isinstance(out, tuple) else (out, None))
-            if isinstance(frame, Exception):
-                messagebox.showerror("Error", str(frame)); return
-            # Resize & show main frame
-            w, h = left_frame.winfo_width(), left_frame.winfo_height()
-            fh, fw = frame.shape[:2]
-            scale = min(w/fw, h/fh)
-            nw, nh = int(fw*scale), int(fh*scale)
-            img = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            pil = Image.fromarray(img).resize((nw, nh), Image.Resampling.LANCZOS)
-            imgtk = ImageTk.PhotoImage(pil)
-            video_label.imgtk = imgtk
-            video_label.config(image=imgtk)
-
             mode = mode_var.get()
-            # Team classification: update possession
-            if mode == Mode.TEAM_CLASSIFICATION and extra:
-                p0, p1 = extra
-                possession_label.config(text=f"Team 0: {p0:.1f}%\nTeam 1: {p1:.1f}%")
-            # Radar: extra is radar image
-            if mode == Mode.RADAR and extra is not None:
-                radar_img = extra
-                rw, rh = radar_img.shape[1], radar_img.shape[0]
-                rscale = min(350/rw, 350/rh)
-                rn_w, rn_h = int(rw*rscale), int(rh*rscale)
-                rim = cv2.cvtColor(radar_img, cv2.COLOR_BGR2RGB)
-                rpil = Image.fromarray(rim).resize((rn_w, rn_h), Image.Resampling.LANCZOS)
-                rtk = ImageTk.PhotoImage(rpil)
-                radar_label.imgtk = rtk
-                radar_label.config(image=rtk)
-            # Pass map: extra = (frame, pass_map_img, counts)
-            if mode == Mode.PASS_MAP and isinstance(extra, tuple):
-                video_frame, pm_img, counts = extra
-                pw, ph = pass_map_label.winfo_width(), pass_map_label.winfo_height()
-                rh, rw = pm_img.shape[:2]
-                sc = min(pw/rw, ph/rh)
-                pm_w, pm_h = int(rw*sc), int(rh*sc)
-                pmc = cv2.cvtColor(pm_img, cv2.COLOR_BGR2RGB)
-                pmpil = Image.fromarray(pmc).resize((pm_w, pm_h), Image.Resampling.LANCZOS)
-                pmtk = ImageTk.PhotoImage(pmpil)
-                pass_map_label.imgtk = pmtk
-                pass_map_label.config(image=pmtk)
-                pass_counts_label.config(text=f"Team 0 passes: {counts.get(0,0)}   Team 1 passes: {counts.get(1,0)}")
+            # --- Pass Map Mode ---
+            if mode == Mode.PASS_MAP:
+                # Expect out to be (frame, pass_map_img, team_pass_counts)
+                if isinstance(out, tuple) and len(out) == 3:
+                    video_frame, pass_map_img, team_pass_counts = out
+                else:
+                    # Fallbacks for legacy or error cases
+                    video_frame = out if isinstance(out, np.ndarray) else np.zeros((480, 640, 3), dtype=np.uint8)
+                    pass_map_img = np.zeros_like(video_frame)
+                    team_pass_counts = {0: 0, 1: 0}
+                # Display video frame on the left
+                left_frame.update_idletasks()
+                display_w = left_frame.winfo_width()
+                display_h = left_frame.winfo_height()
+                h, w, _ = video_frame.shape
+                scale = min(display_w / w, display_h / h)
+                new_w, new_h = int(w * scale), int(h * scale)
+                img = cv2.cvtColor(video_frame, cv2.COLOR_BGR2RGB)
+                img = Image.fromarray(img)
+                img = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+                imgtk = ImageTk.PhotoImage(image=img)
+                setattr(video_label, 'imgtk', imgtk)
+                video_label.config(image=imgtk)
+                # Display pass map in pass map tab
+                pm_h, pm_w, _ = pass_map_img.shape
+                pm_scale = min(350 / pm_w, 350 / pm_h, 1.0)
+                pm_new_w, pm_new_h = int(pm_w * pm_scale), int(pm_h * pm_scale)
+                pm_img = cv2.cvtColor(pass_map_img, cv2.COLOR_BGR2RGB)
+                pm_pil = Image.fromarray(pm_img)
+                pm_pil = pm_pil.resize((pm_new_w, pm_new_h), Image.Resampling.LANCZOS)
+                pm_imgtk = ImageTk.PhotoImage(image=pm_pil)
+                setattr(pass_map_label, 'imgtk', pm_imgtk)
+                pass_map_label.config(image=pm_imgtk)
+                # Display team pass counts
+                pass_counts_label.config(text=f"Team 0 passes: {team_pass_counts.get(0,0)}   Team 1 passes: {team_pass_counts.get(1,0)}")
+                possession_label.config(text="Team 0: 0.0%\nTeam 1: 0.0%")
+            # --- Radar Mode ---
+            elif mode == Mode.RADAR:
+                if isinstance(out, tuple) and len(out) == 2:
+                    annotated_frame, radar_img = out
+                    left_frame.update_idletasks()
+                    display_w = left_frame.winfo_width()
+                    display_h = left_frame.winfo_height()
+                    h, w, _ = annotated_frame.shape
+                    scale = min(display_w / w, display_h / h)
+                    new_w, new_h = int(w * scale), int(h * scale)
+                    img = cv2.cvtColor(annotated_frame, cv2.COLOR_BGR2RGB)
+                    img = Image.fromarray(img)
+                    img = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+                    imgtk = ImageTk.PhotoImage(image=img)
+                    setattr(video_label, 'imgtk', imgtk)
+                    video_label.config(image=imgtk)
+                    # Display radar in radar tab
+                    radar_h, radar_w, _ = radar_img.shape
+                    radar_scale = min(350 / radar_w, 350 / radar_h, 1.0)
+                    radar_new_w, radar_new_h = int(radar_w * radar_scale), int(radar_h * radar_scale)
+                    radar_img_rgb = cv2.cvtColor(radar_img, cv2.COLOR_BGR2RGB)
+                    radar_pil = Image.fromarray(radar_img_rgb)
+                    radar_pil = radar_pil.resize((radar_new_w, radar_new_h), Image.Resampling.LANCZOS)
+                    radar_imgtk = ImageTk.PhotoImage(image=radar_pil)
+                    setattr(radar_label, 'imgtk', radar_imgtk)
+                    radar_label.config(image=radar_imgtk)
+                    possession_label.config(text="Team 0: 0.0%\nTeam 1: 0.0%")
+            # --- Team Classification Mode ---
+            elif mode == Mode.TEAM_CLASSIFICATION:
+                if isinstance(out, tuple) and len(out) == 2:
+                    frame, possession = out
+                    left_frame.update_idletasks()
+                    display_w = left_frame.winfo_width()
+                    display_h = left_frame.winfo_height()
+                    h, w, _ = frame.shape
+                    scale = min(display_w / w, display_h / h)
+                    new_w, new_h = int(w * scale), int(h * scale)
+                    img = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                    img = Image.fromarray(img)
+                    img = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+                    imgtk = ImageTk.PhotoImage(image=img)
+                    setattr(video_label, 'imgtk', imgtk)
+                    video_label.config(image=imgtk)
+                    p0, p1 = possession
+                    possession_label.config(text=f"Team 0: {p0:.1f}%\nTeam 1: {p1:.1f}%")
+            # --- Other Modes ---
+            else:
+                frame = out if isinstance(out, np.ndarray) else np.zeros((480, 640, 3), dtype=np.uint8)
+                left_frame.update_idletasks()
+                display_w = left_frame.winfo_width()
+                display_h = left_frame.winfo_height()
+                h, w, _ = frame.shape
+                scale = min(display_w / w, display_h / h)
+                new_w, new_h = int(w * scale), int(h * scale)
+                img = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                img = Image.fromarray(img)
+                img = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+                imgtk = ImageTk.PhotoImage(image=img)
+                setattr(video_label, 'imgtk', imgtk)
+                video_label.config(image=imgtk)
+                possession_label.config(text="Team 0: 0.0%\nTeam 1: 0.0%")
 
         if thread and thread.is_alive() and not paused[0]:
             root.after(30, update_video)
 
-    # UI controls
-    tk.Button(controls, text="Select Video", command=select_file).pack(side=tk.LEFT, padx=5)
+
+    def add_tooltip(widget, text):
+        tooltip = tk.Toplevel(widget)
+        tooltip.withdraw()
+        tooltip.overrideredirect(True)
+        label = tk.Label(tooltip, text=text, background="#ffffe0", relief='solid', borderwidth=1)
+        label.pack()
+        def enter(event):
+            tooltip.deiconify()
+            x = event.x_root + 10
+            y = event.y_root + 10
+            tooltip.geometry(f'+{x}+{y}')
+        def leave(event):
+            tooltip.withdraw()
+        widget.bind('<Enter>', enter)
+        widget.bind('<Leave>', leave)
+
+    # File selection
+    tk.Button(controls, text="Select Video", command=select_file).pack(side=tk.LEFT, padx=5, pady=5)
     file_label = tk.Label(controls, textvariable=file_name_var, bg='black', fg='white')
     file_label.pack(side=tk.LEFT, padx=5)
-    ttk.Combobox(controls, textvariable=mode_var, values=[
-        Mode.PITCH_DETECTION, Mode.PLAYER_DETECTION, Mode.BALL_DETECTION,
-        Mode.PLAYER_TRACKING, Mode.TEAM_CLASSIFICATION, Mode.RADAR, Mode.PASS_MAP
-    ], state='readonly').pack(side=tk.LEFT, padx=5)
-    ttk.Combobox(controls, textvariable=device_var, values=['cpu','cuda'], state='readonly').pack(side=tk.LEFT, padx=5)
+    add_tooltip(file_label, file_path_var.get())
+
+    # Mode selection
+    tk.Label(controls, text="Mode:", bg='black', fg='white').pack(side=tk.LEFT, padx=5)
+    mode_menu = ttk.Combobox(controls, textvariable=mode_var, values=[
+        Mode.PITCH_DETECTION,
+        Mode.PLAYER_DETECTION,
+        Mode.BALL_DETECTION,
+        Mode.PLAYER_TRACKING,
+        Mode.TEAM_CLASSIFICATION,
+        Mode.RADAR,
+        Mode.PASS_MAP
+    ], state='readonly')
+    mode_menu.pack(side=tk.LEFT, padx=5)
+
+    # Device selection
+    tk.Label(controls, text="Device:", bg='black', fg='white').pack(side=tk.LEFT, padx=5)
+    device_menu = ttk.Combobox(controls, textvariable=device_var, values=['cpu', 'cuda'], state='readonly')
+    device_menu.pack(side=tk.LEFT, padx=5)
+
+    def remove_video():
+        stop_processing()
+        file_path_var.set("")
+        file_name_var.set("")
+        clear_video()
+
+    # Media controls
     tk.Button(controls, text="Play", command=start_processing).pack(side=tk.LEFT, padx=5)
     tk.Button(controls, text="Pause", command=pause_processing).pack(side=tk.LEFT, padx=5)
     tk.Button(controls, text="Resume", command=resume_processing).pack(side=tk.LEFT, padx=5)
     tk.Button(controls, text="Stop", command=stop_processing).pack(side=tk.LEFT, padx=5)
-    tk.Button(controls, text="Clear", command=clear_video).pack(side=tk.LEFT, padx=5)
+    tk.Button(controls, text="Remove Video", command=remove_video).pack(side=tk.LEFT, padx=5)
 
     root.mainloop()

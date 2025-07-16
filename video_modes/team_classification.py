@@ -144,7 +144,7 @@ def run_team_classification(source_video_path: str, device: str):
     ball_model   = YOLO(BALL_DETECTION_MODEL_PATH).to(device)
     tracker      = sv.ByteTrack(minimum_consecutive_frames=3)
     ball_tracker = BallTracker(buffer_size=20)
-    ball_annotator = BallAnnotator(radius=6, buffer_size=10)
+    ball_annotator = BallAnnotator(radius=10, buffer_size=10)
 
     # 1️⃣ Gather player crops for classifier
     sampler = sv.get_video_frames_generator(source_path=source_video_path, stride=STRIDE)
@@ -213,7 +213,7 @@ def run_team_classification_with_possession(
     ball_model   = YOLO(BALL_DETECTION_MODEL_PATH).to(device)
     tracker      = sv.ByteTrack(minimum_consecutive_frames=3)
     ball_tracker = BallTracker(buffer_size=20)
-    ball_annotator = BallAnnotator(radius=6, buffer_size=10)
+    ball_annotator = BallAnnotator(radius=10, buffer_size=10)
 
     # Gather crops & fit classifier
     sampler = sv.get_video_frames_generator(source_path=source_video_path, stride=STRIDE)

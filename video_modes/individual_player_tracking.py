@@ -1,5 +1,5 @@
 import numpy as np
-import cv2
+import cv2 
 from ultralytics import YOLO
 from collections import defaultdict, deque
 from sports.configs.soccer import SoccerPitchConfiguration

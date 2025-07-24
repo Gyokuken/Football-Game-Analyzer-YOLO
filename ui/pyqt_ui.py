@@ -1,4 +1,3 @@
-import sys
 import os
 import queue
 import cv2
@@ -10,10 +9,8 @@ import torch
 import ultralytics.nn.tasks
 
 from video_modes.pitch_detection import run_pitch_detection
-from video_modes.player_detection import run_player_detection
 from video_modes.player_tracking import run_player_tracking
 from video_modes.team_classification import (
-    run_team_classification,
     run_team_classification_with_possession
 )
 from video_modes.radar import run_radar

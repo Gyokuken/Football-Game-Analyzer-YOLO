@@ -1,9 +1,7 @@
 from typing import Optional, List
-
 import cv2
 import supervision as sv
 import numpy as np
-
 from sports.configs.soccer import SoccerPitchConfiguration
 
 

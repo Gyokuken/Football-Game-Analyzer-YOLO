@@ -1,5 +1,3 @@
-import cv2
-import numpy as np
 import supervision as sv
 from ultralytics import YOLO
 from sports.configs.soccer import SoccerPitchConfiguration
